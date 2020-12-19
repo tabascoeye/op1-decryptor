@@ -2,7 +2,28 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __APPLE__
+
+#include <libkern/OSByteOrder.h>
+
+#define htobe16(x) OSSwapHostToBigInt16(x)
+#define htole16(x) OSSwapHostToLittleInt16(x)
+#define be16toh(x) OSSwapBigToHostInt16(x)
+#define le16toh(x) OSSwapLittleToHostInt16(x)
+
+#define htobe32(x) OSSwapHostToBigInt32(x)
+#define htole32(x) OSSwapHostToLittleInt32(x)
+#define be32toh(x) OSSwapBigToHostInt32(x)
+#define le32toh(x) OSSwapLittleToHostInt32(x)
+
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#define htole64(x) OSSwapHostToLittleInt64(x)
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#define le64toh(x) OSSwapLittleToHostInt64(x)
+
+#else
 #include <endian.h>
+#endif
 
 #define BUFSZ (24*4096)
 
@@ -38,12 +59,12 @@ int read_block_header(FILE* fd, struct block_header_t *bh)
     int count;
 
     count = fread(bh->raw, 1, 16, fd);
-    
+
     bh->flags = get_le16(&bh->raw[0]);
-    
+
     bh->checksum = bh->raw[2];
     bh->magic = bh->raw[3];
-    
+
     bh->target_address = get_le32(&bh->raw[4]);
     bh->byte_count = get_le32(&bh->raw[8]);
     bh->argument = get_le32(&bh->raw[12]);
@@ -51,14 +72,14 @@ int read_block_header(FILE* fd, struct block_header_t *bh)
     return count;
 }
 
-int write_block_header(FILE* fd, struct block_header_t *bh)
+void write_block_header(FILE* fd, struct block_header_t *bh)
 {
     uint32_t tmp32;
     uint16_t tmp16;
 
     tmp16 = htole16(bh->flags);
     fwrite(&tmp16, 2, 1, fd);
-    
+
     fwrite(&bh->checksum, 1, 1, fd);
     fwrite(&bh->magic, 1, 1, fd);
 
@@ -74,7 +95,7 @@ int check_block_header(struct block_header_t *bh)
 {
     int i;
     uint8_t chksum=0;
-    
+
     if (bh->magic != 0xad)
         return -1;
 
@@ -83,7 +104,7 @@ int check_block_header(struct block_header_t *bh)
 
     if (chksum != 0)
         return -1;
-    
+
     return 0;
 }
 
@@ -94,7 +115,7 @@ void decipher (uint8_t num_cycles, uint32_t v[2], uint32_t const k[4])
     uint32_t v0 = v[0];
     uint32_t v1 = v[1];
     uint32_t sum = delta * num_cycles;
-    
+
     for (i=0; i < num_cycles; i++) {
         v1 -= (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + k[(sum>>11) & 3]);
         sum -= delta;
@@ -107,7 +128,7 @@ void decipher (uint8_t num_cycles, uint32_t v[2], uint32_t const k[4])
 void decrypt(uint8_t *buffer, int n)
 {
     int i;
-    
+
     for (i=0; i+24<=n; i+=24) {
         decipher(32, (uint32_t*)&buffer[i], key);
     }
@@ -123,7 +144,7 @@ uint8_t nibble(char c)
 
     if ((c >= 'a') && (c <= 'f'))
         return c-'a'+10;
-    
+
     return 0;
 }
 
@@ -131,7 +152,7 @@ int read_key(char* keystr)
 {
     int i;
     uint8_t keybytes[16];
-    
+
     if (strlen(keystr) != 32)
         return -1;
 
@@ -153,8 +174,8 @@ int main(int argc, char** argv)
     struct block_header_t bh;
 
     uint8_t buf[BUFSZ];
-    
-    int i, remaining;
+
+    int remaining;
     int count=0;
     int iscallback=0;
 
@@ -188,7 +209,7 @@ int main(int argc, char** argv)
             printf("invalid block header found.\n");
             break;
         }
-        
+
         if ((bh.flags & 0x100) != 0) {
             write_block_header(ldr_out, &bh);
             continue;
@@ -208,7 +229,7 @@ int main(int argc, char** argv)
 
         // copy and decrypt block content
         remaining = bh.byte_count;
-        
+
         while (remaining > BUFSZ) {
             fread(buf, BUFSZ, 1, ldr_in);
             if (iscallback)
@@ -216,7 +237,7 @@ int main(int argc, char** argv)
             remaining -= BUFSZ;
             fwrite(buf, BUFSZ, 1, ldr_out);
         }
-        
+
         fread(buf, remaining, 1, ldr_in);
         if (iscallback)
             decrypt(buf, remaining);
